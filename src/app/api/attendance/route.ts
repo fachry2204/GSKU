@@ -9,6 +9,27 @@ function getUserFromToken(req: Request) {
   return verifyToken(token);
 }
 
+function getJakartaDateString(value: unknown) {
+  const date = value instanceof Date ? value : new Date(String(value));
+  if (Number.isNaN(date.getTime())) return '';
+
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jakarta',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+
+  const year = parts.find((part) => part.type === 'year')?.value;
+  const month = parts.find((part) => part.type === 'month')?.value;
+  const day = parts.find((part) => part.type === 'day')?.value;
+  return year && month && day ? `${year}-${month}-${day}` : '';
+}
+
+function getRecordDate(record: any) {
+  return record?.timestampDate || getJakartaDateString(record?.timestamp);
+}
+
 export async function GET(req: Request) {
   try {
     const decoded = getUserFromToken(req);
@@ -28,18 +49,23 @@ export async function GET(req: Request) {
 
     // Get records from yesterday and today
     const regular: any = await queryDb(
-      `SELECT a.*, u.fullName as userName FROM attendance a JOIN users u ON u.id = a.userId WHERE a.userId = ? AND DATE(a.timestamp) >= ? ORDER BY a.id ASC`,
+      `SELECT a.*, DATE_FORMAT(a.timestamp, '%Y-%m-%d') AS timestampDate, u.fullName as userName
+       FROM attendance a JOIN users u ON u.id = a.userId
+       WHERE a.userId = ? AND DATE(a.timestamp) >= ? ORDER BY a.id ASC`,
       [userId, yesterdayStr]
     );
 
     const lembur: any = await queryDb(
-      `SELECT l.*, u.fullName as userName FROM lembur l JOIN users u ON u.id = l.userId WHERE l.userId = ? AND DATE(l.timestamp) >= ? ORDER BY l.id ASC`,
+      `SELECT l.*, DATE_FORMAT(l.timestamp, '%Y-%m-%d') AS timestampDate, u.fullName as userName
+       FROM lembur l JOIN users u ON u.id = l.userId
+       WHERE l.userId = ? AND DATE(l.timestamp) >= ? ORDER BY l.id ASC`,
       [userId, yesterdayStr]
     );
 
     // Check requests: only consider approved request active if no OUT/EARLY_OUT exists after its timestamp
     const requests: any = await queryDb(
-      `SELECT * FROM attendance_requests WHERE userId = ? AND DATE(timestamp) >= ? ORDER BY id DESC`,
+      `SELECT *, DATE_FORMAT(timestamp, '%Y-%m-%d') AS timestampDate
+       FROM attendance_requests WHERE userId = ? AND DATE(timestamp) >= ? ORDER BY id DESC`,
       [userId, yesterdayStr]
     );
 
@@ -50,7 +76,7 @@ export async function GET(req: Request) {
     let hasApprovedRequest = false;
     if (approvedRequest) {
       const reqTime = new Date(approvedRequest.timestamp).getTime();
-      const reqDateStr = new Date(approvedRequest.timestamp).toISOString().split('T')[0];
+      const reqDateStr = getRecordDate(approvedRequest);
 
       const hasOutAfterReq = [...regular, ...lembur].some((r: any) =>
         (r.type === 'OUT' || r.type === 'EARLY_OUT') && new Date(r.timestamp).getTime() >= reqTime
@@ -62,7 +88,7 @@ export async function GET(req: Request) {
     }
 
     const todayRequest = (requests || []).find((r: any) => {
-      const rDate = r.timestamp ? new Date(r.timestamp).toISOString().split('T')[0] : '';
+      const rDate = getRecordDate(r);
       return rDate === todayStr;
     });
 
@@ -76,7 +102,7 @@ export async function GET(req: Request) {
       const inRecords = allRecords.filter((r: any) => r.type === 'IN' && r.status !== 'PENDING');
       if (inRecords.length === 0) {
         const todayRecords = allRecords.filter((r: any) => {
-          const rDate = r.timestamp ? new Date(r.timestamp).toISOString().split('T')[0] : '';
+          const rDate = getRecordDate(r);
           return rDate === todayStr;
         });
         if (todayRecords.length > 0) {
@@ -87,7 +113,7 @@ export async function GET(req: Request) {
 
       const lastIn = inRecords[inRecords.length - 1];
       const lastInTime = new Date(lastIn.timestamp).getTime();
-      const inDateStr = new Date(lastIn.timestamp).toISOString().split('T')[0];
+      const inDateStr = getRecordDate(lastIn);
 
       const sessionRecords = allRecords.filter((r: any) => new Date(r.timestamp).getTime() >= lastInTime);
       const hasOut = sessionRecords.some((r: any) => r.type === 'OUT' || r.type === 'EARLY_OUT');
@@ -96,7 +122,7 @@ export async function GET(req: Request) {
         return { records: sessionRecords, isClosed: false, sessionDate: inDateStr, lastInTime };
       } else {
         const lastRecord = sessionRecords[sessionRecords.length - 1];
-        const outDateStr = new Date(lastRecord.timestamp).toISOString().split('T')[0];
+        const outDateStr = getRecordDate(lastRecord);
         if (inDateStr === todayStr || outDateStr === todayStr) {
           return { records: sessionRecords, isClosed: true, sessionDate: inDateStr, lastInTime };
         }

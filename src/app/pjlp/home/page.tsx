@@ -156,7 +156,7 @@ export default function PjlpHomePage() {
           if (!Array.isArray(assignedUsers)) assignedUsers = [];
           return { ...s, assignedUsers };
         })
-        .filter((s: any) => s.assignedUsers.some((au: any) => au.id === user.id));
+        .filter((s: any) => s.assignedUsers.some((au: any) => String(au.id) === String(user.id)));
       setAllSchedules(mySchedules);
 
       // Match today's schedule (or active night shift session schedule)
@@ -166,11 +166,15 @@ export default function PjlpHomePage() {
       const isActiveSession = currentAttStatus && !['Belum Absen', 'Sudah Absen Pulang', 'Sudah Check-Out', 'Sudah Checkout'].includes(currentAttStatus);
       const targetDateStr = (isActiveSession && sessionDateStr) ? sessionDateStr : localTodayStr;
 
-      const todaySched = mySchedules.find((s: any) => {
+      const sessionSchedule = mySchedules.find((s: any) => {
         const sDateStr = s.date ? getLocalDateString(s.date) : '';
         return sDateStr === targetDateStr;
       });
-      setTodaySchedule(todaySched || null);
+      const currentDaySchedule = mySchedules.find((s: any) => {
+        const sDateStr = s.date ? getLocalDateString(s.date) : '';
+        return sDateStr === localTodayStr;
+      });
+      setTodaySchedule(sessionSchedule || currentDaySchedule || null);
 
       // 3. Fetch All Attendance
       const resAllAtt = await axios.get(`${apiUrl}/attendance/my`, {

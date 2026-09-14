@@ -1,0 +1,6 @@
+[Server] Connecting to MySQL at host: localhost
+[Server] Using DB_USER: root
+[Server] Using DB_NAME: ppsu_monitoring
+[Server] MySQL pool ready
+[Server] Auto-migration completed
+> Next.js full-stack ready on http://localhost:3000

@@ -3,33 +3,33 @@ import { queryDb } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
+interface ManifestSettings {
+  systemName?: string;
+  systemDescription?: string;
+  mainColor?: string;
+}
+
 export default async function manifest(): Promise<MetadataRoute.Manifest> {
   let systemName = 'SI PETUT';
   let description = 'Monitoring PJLP';
-  let logoUrl = '/logodki.png';
   let mainColor = '#f97316';
 
   try {
-    const rows: any = await queryDb(
-      'SELECT systemName, systemDescription, logoUrl, mainColor FROM system_settings LIMIT 1'
-    );
+    const rows = await queryDb(
+      'SELECT systemName, systemDescription, mainColor FROM system_settings LIMIT 1'
+    ) as ManifestSettings[];
     const settings = rows?.[0];
     if (settings) {
       systemName = settings.systemName || systemName;
       description = settings.systemDescription || description;
-      logoUrl = settings.logoUrl || logoUrl;
       mainColor = settings.mainColor || mainColor;
     }
-  } catch (error: any) {
-    console.error('Failed to fetch settings for manifest:', error?.message || error);
+  } catch (error: unknown) {
+    console.error(
+      'Failed to fetch settings for manifest:',
+      error instanceof Error ? error.message : error
+    );
   }
-
-  const lowerLogo = String(logoUrl || '').toLowerCase();
-  const iconType = lowerLogo.endsWith('.svg')
-    ? 'image/svg+xml'
-    : lowerLogo.endsWith('.jpg') || lowerLogo.endsWith('.jpeg')
-      ? 'image/jpeg'
-      : 'image/png';
 
   return {
     name: systemName,
@@ -41,14 +41,22 @@ export default async function manifest(): Promise<MetadataRoute.Manifest> {
     theme_color: mainColor,
     icons: [
       {
-        src: logoUrl,
+        src: '/pwa-icon-192.png',
         sizes: '192x192',
-        type: iconType,
+        type: 'image/png',
+        purpose: 'any',
       },
       {
-        src: logoUrl,
+        src: '/pwa-icon-512.png',
         sizes: '512x512',
-        type: iconType,
+        type: 'image/png',
+        purpose: 'any',
+      },
+      {
+        src: '/pwa-icon-512.png',
+        sizes: '512x512',
+        type: 'image/png',
+        purpose: 'maskable',
       },
     ],
   };

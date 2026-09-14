@@ -222,21 +222,31 @@ export async function POST(req: Request) {
     }
 
     const { username, password, fullName, email, phone, roleName, zoneId, gender, birthDate, joinDate, address, country, province, city, district, village, postalCode, photoUrl, documents, status } = body;
+    const isAdminAccount = ['ADMIN', 'STAFF', 'PIMPINAN'].includes(String(roleName));
 
-    if (!username || !password || !fullName) {
+    if (!username || (!isAdminAccount && !password) || !fullName) {
       return NextResponse.json({ error: 'Data tidak lengkap' }, { status: 400 });
     }
 
-    if (['ADMIN', 'STAFF', 'PIMPINAN'].includes(String(roleName))) {
+    if (isAdminAccount) {
+      if (decoded.role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       await ensureAdminUsersTable();
-      const hashed = await hashPassword(password);
+      const normalizedUsername = String(username).trim().replace(/^@/, '');
+      if (!normalizedUsername || /\s/.test(normalizedUsername)) {
+        return NextResponse.json({ error: 'Username wajib diisi dan tidak boleh mengandung spasi.' }, { status: 400 });
+      }
+      const adminPassword = String(password || '');
+      if (adminPassword.length < 8) {
+        return NextResponse.json({ error: 'Password administrator minimal 8 karakter.' }, { status: 400 });
+      }
+      const hashed = await hashPassword(adminPassword);
       await queryDb(
         `INSERT INTO admin_users (username, password, fullName, email, phone, roleName, status, createdAt, updatedAt)
          VALUES (?, ?, ?, ?, ?, ?, ?, NOW(6), NOW(6))`,
-        [username, hashed, fullName, email || null, phone || null, roleName, status || 'ACTIVE']
+        [normalizedUsername, hashed, String(fullName).trim(), email || null, phone || null, roleName, status || 'ACTIVE']
       );
-      emitUserChange('create', { username, fullName });
-      return NextResponse.json({ message: 'Admin berhasil dibuat', username }, { status: 201 });
+      emitUserChange('create', { username: normalizedUsername, fullName });
+      return NextResponse.json({ message: 'Admin berhasil dibuat', username: normalizedUsername }, { status: 201 });
     }
 
     // Find role
@@ -302,6 +312,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ message: 'User berhasil dibuat', username: finalUsername }, { status: 201 });
   } catch (err: any) {
     console.error('[POST /api/users] error:', err);
+    if (err?.code === 'ER_DUP_ENTRY') {
+      return NextResponse.json({ error: 'Username sudah digunakan oleh akun lain.' }, { status: 409 });
+    }
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

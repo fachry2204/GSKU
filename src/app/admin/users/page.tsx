@@ -79,9 +79,21 @@ export default function AdminUsersPage() {
       setIsDeleteOpen(false);
       setSelectedUserForDelete(null);
       fetchUsers();
-    } catch (error) {
-      console.error(error);
-      toast({ title: 'Gagal', description: 'Gagal menghapus data petugas', variant: 'destructive' });
+    } catch (error: any) {
+      console.error('[AdminUsers] Failed to delete user:', error?.response?.data || error);
+      const status = error?.response?.status;
+      const serverMessage = error?.response?.data?.error;
+      const description = typeof serverMessage === 'string'
+        ? serverMessage
+        : status === 401 || status === 403
+          ? 'Sesi Anda tidak memiliki izin untuk menghapus petugas. Silakan masuk ulang sebagai Admin.'
+          : 'Petugas gagal dihapus karena terjadi gangguan pada server. Silakan coba kembali.';
+
+      toast({
+        title: status === 409 ? 'Petugas Masih Memiliki Riwayat' : 'Gagal Menghapus Petugas',
+        description,
+        variant: 'destructive',
+      });
     } finally {
       setIsDeleting(false);
     }
@@ -119,6 +131,7 @@ export default function AdminUsersPage() {
         const village = row['Kelurahan / Desa'] || row.village || '';
         const postalCode = String(row['Kode Pos'] || row.postalCode || '');
         const address = row['Alamat Lengkap'] || row.address || '';
+        const password = String(row.Password || row.password || '');
         
         let formattedPhone = String(phoneRaw);
         if (formattedPhone.startsWith('0')) {
@@ -127,10 +140,15 @@ export default function AdminUsersPage() {
 
         const generatedUsername = `pjlp-${fullName.toLowerCase().replace(/[^a-z0-9]/gi, '')}-${Math.floor(Math.random() * 10000)}`;
 
+        if (password.length < 8) {
+          failCount++;
+          continue;
+        }
+
         try {
           await axios.post(`${apiUrl}/users`, {
             username: generatedUsername,
-            password: '1234',
+            password,
             fullName: fullName,
             email: email,
             gender: gender,
@@ -173,6 +191,7 @@ export default function AdminUsersPage() {
   const handleDownloadTemplate = () => {
     const templateData = [{
       "Nama Lengkap": "Budi Santoso",
+      "Password": "GantiSandiUnik",
       "Email": "budi@example.com",
       "Jenis Kelamin": "Laki-laki",
       "Tanggal Lahir": "1990-01-01",

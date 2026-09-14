@@ -78,6 +78,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 
 import SettingsProvider from '@/components/SettingsProvider';
+import InstallAppPrompt from '@/components/install-app-prompt';
 
 export const viewport: Viewport = {
   themeColor: "#FF8C00",
@@ -153,6 +154,7 @@ export default async function RootLayout({
       <body className="min-h-full flex flex-col font-sans touch-manipulation" suppressHydrationWarning={true}>
         <SettingsProvider>
           {children}
+          <InstallAppPrompt />
         </SettingsProvider>
       </body>
     </html>

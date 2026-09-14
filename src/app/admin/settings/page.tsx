@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Shield, Plus, Edit2, Trash2, Upload, Database, FileArchive, Download, Loader2, Save } from 'lucide-react';
+import { Shield, Plus, Edit2, Trash2, Upload, Database, FileArchive, Download, Loader2, Save, KeyRound } from 'lucide-react';
 import axios from 'axios';
 import { useAuthStore } from '@/store/auth-store';
 import { useSettingsStore } from '@/store/settings-store';
@@ -92,11 +92,15 @@ export default function AdminSettingsPage() {
   const [adminDialogOpen, setAdminDialogOpen] = useState(false);
   const [isCreatingAdmin, setIsCreatingAdmin] = useState(false);
   const [isMigratingAdmins, setIsMigratingAdmins] = useState(false);
+  const [editingAdmin, setEditingAdmin] = useState<any | null>(null);
+  const [isUpdatingAdmin, setIsUpdatingAdmin] = useState(false);
+  const [resettingAdminId, setResettingAdminId] = useState<number | null>(null);
   const [newAdmin, setNewAdmin] = useState({
     username: '',
     fullName: '',
     email: '',
     phone: '',
+    password: '',
     roleName: 'ADMIN',
   });
 
@@ -188,8 +192,12 @@ export default function AdminSettingsPage() {
 
   const handleCreateAdmin = async () => {
     if (!token) return;
-    if (!newAdmin.username.trim() || !newAdmin.fullName.trim() || !newAdmin.email.trim() || !newAdmin.phone.trim()) {
-      alert('Username, Nama, Email, dan No HP wajib diisi.');
+    if (!newAdmin.username.trim() || !newAdmin.fullName.trim() || !newAdmin.email.trim() || !newAdmin.phone.trim() || !newAdmin.password) {
+      alert('Username, password, Nama, Email, dan No HP wajib diisi.');
+      return;
+    }
+    if (newAdmin.password.length < 8) {
+      alert('Password minimal 8 karakter.');
       return;
     }
     if (!['ADMIN', 'STAFF', 'PIMPINAN'].includes(newAdmin.roleName)) {
@@ -202,7 +210,7 @@ export default function AdminSettingsPage() {
         `${apiUrl}/users`,
         {
           username: newAdmin.username.trim(),
-          password: '1234',
+          password: newAdmin.password,
           fullName: newAdmin.fullName.trim(),
           email: newAdmin.email.trim(),
           phone: newAdmin.phone.trim(),
@@ -212,9 +220,9 @@ export default function AdminSettingsPage() {
         { headers: { Authorization: `Bearer ${token}` } },
       );
       setAdminDialogOpen(false);
-      setNewAdmin({ username: '', fullName: '', email: '', phone: '', roleName: 'ADMIN' });
+      setNewAdmin({ username: '', fullName: '', email: '', phone: '', password: '', roleName: 'ADMIN' });
       await fetchUsers();
-      alert('Admin berhasil dibuat. Password default: 1234');
+      alert('Administrator berhasil dibuat dan tersimpan di database.');
     } catch (err: any) {
       alert('Gagal membuat admin: ' + (err?.response?.data?.error || err?.response?.data?.message || err.message));
     } finally {
@@ -231,6 +239,60 @@ export default function AdminSettingsPage() {
       await fetchUsers();
     } catch (err: any) {
       alert('Gagal menghapus user: ' + (err?.response?.data?.error || err?.response?.data?.message || err.message));
+    }
+  };
+
+  const handleUpdateAdmin = async () => {
+    if (!token || !editingAdmin) return;
+    if (!String(editingAdmin.username || '').trim() || !String(editingAdmin.fullName || '').trim()) {
+      alert('Username dan Nama wajib diisi.');
+      return;
+    }
+    setIsUpdatingAdmin(true);
+    try {
+      await axios.put(
+        `${apiUrl}/users/${editingAdmin.id}?type=admin`,
+        {
+          username: String(editingAdmin.username).trim().replace(/^@/, ''),
+          fullName: String(editingAdmin.fullName).trim(),
+          email: String(editingAdmin.email || '').trim(),
+          phone: String(editingAdmin.phone || '').trim(),
+          roleName: editingAdmin.roleName,
+          status: editingAdmin.status,
+        },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      setEditingAdmin(null);
+      await fetchUsers();
+      alert('Data administrator berhasil diperbarui.');
+    } catch (err: any) {
+      alert('Gagal memperbarui data: ' + (err?.response?.data?.error || err?.response?.data?.message || err.message));
+    } finally {
+      setIsUpdatingAdmin(false);
+    }
+  };
+
+  const handleResetAdminPassword = async (user: any) => {
+    if (!token) return;
+    const newPassword = window.prompt(`Masukkan password baru untuk ${user.fullName || user.username} (minimal 8 karakter):`);
+    if (newPassword === null) return;
+    if (newPassword.length < 8) {
+      alert('Password baru minimal 8 karakter.');
+      return;
+    }
+    if (!confirm(`Simpan password baru untuk ${user.fullName || user.username}?`)) return;
+    setResettingAdminId(Number(user.id));
+    try {
+      await axios.post(
+        `${apiUrl}/users/${user.id}?type=admin`,
+        { action: 'reset_password', newPassword },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      alert('Password berhasil diperbarui di database.');
+    } catch (err: any) {
+      alert('Gagal mereset password: ' + (err?.response?.data?.error || err?.response?.data?.message || err.message));
+    } finally {
+      setResettingAdminId(null);
     }
   };
 
@@ -980,8 +1042,24 @@ export default function AdminSettingsPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-400 hover:text-orange-500">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-zinc-400 hover:text-orange-500"
+                            title="Edit administrator"
+                            onClick={() => setEditingAdmin({ ...user })}
+                          >
                             <Edit2 className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-zinc-400 hover:text-blue-600"
+                            title="Atur password baru"
+                            onClick={() => handleResetAdminPassword(user)}
+                            disabled={resettingAdminId === Number(user.id)}
+                          >
+                            {resettingAdminId === Number(user.id) ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}
                           </Button>
                           <Button
                             variant="ghost"
@@ -1011,7 +1089,7 @@ export default function AdminSettingsPage() {
             <DialogContent className="max-w-lg rounded-3xl">
               <DialogHeader>
                 <DialogTitle>Tambah Admin</DialogTitle>
-                <DialogDescription>Password default otomatis: 1234</DialogDescription>
+                <DialogDescription>Seluruh data akun dan password terenkripsi disimpan di MySQL.</DialogDescription>
               </DialogHeader>
               <div className="space-y-4">
                 <div className="space-y-2">
@@ -1029,6 +1107,17 @@ export default function AdminSettingsPage() {
                     value={newAdmin.fullName}
                     onChange={(e) => setNewAdmin((p) => ({ ...p, fullName: e.target.value }))}
                     placeholder="Nama lengkap"
+                    className="rounded-xl h-12"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-zinc-700">Password</label>
+                  <Input
+                    type="password"
+                    value={newAdmin.password}
+                    onChange={(e) => setNewAdmin((p) => ({ ...p, password: e.target.value }))}
+                    placeholder="Minimal 8 karakter"
+                    autoComplete="new-password"
                     className="rounded-xl h-12"
                   />
                 </div>
@@ -1082,6 +1171,55 @@ export default function AdminSettingsPage() {
                   </Button>
                 </div>
               </div>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={Boolean(editingAdmin)} onOpenChange={(open) => !open && setEditingAdmin(null)}>
+            <DialogContent className="max-w-lg rounded-3xl">
+              <DialogHeader>
+                <DialogTitle>Edit Administrator</DialogTitle>
+                <DialogDescription>Perbarui identitas, role, dan status akun.</DialogDescription>
+              </DialogHeader>
+              {editingAdmin && (
+                <div className="space-y-4">
+                  {[
+                    ['username', 'Username', 'Username tanpa spasi'],
+                    ['fullName', 'Nama', 'Nama lengkap'],
+                    ['email', 'Email', 'email@contoh.com'],
+                    ['phone', 'No HP', '08xxxxxxxxxx'],
+                  ].map(([field, label, placeholder]) => (
+                    <div className="space-y-2" key={field}>
+                      <label className="text-sm font-bold text-zinc-700">{label}</label>
+                      <Input
+                        value={editingAdmin[field] || ''}
+                        onChange={(e) => setEditingAdmin((previous: any) => ({ ...previous, [field]: field === 'username' ? e.target.value.replace(/\s+/g, '') : e.target.value }))}
+                        placeholder={placeholder}
+                        className="rounded-xl h-12"
+                      />
+                    </div>
+                  ))}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-bold text-zinc-700">Role</label>
+                      <select className="flex h-12 w-full rounded-xl border border-zinc-200 bg-white px-4 text-sm font-bold" value={editingAdmin.roleName} onChange={(e) => setEditingAdmin((p: any) => ({ ...p, roleName: e.target.value }))}>
+                        <option value="ADMIN">ADMIN</option><option value="STAFF">STAFF</option><option value="PIMPINAN">PIMPINAN</option>
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-bold text-zinc-700">Status</label>
+                      <select className="flex h-12 w-full rounded-xl border border-zinc-200 bg-white px-4 text-sm font-bold" value={editingAdmin.status} onChange={(e) => setEditingAdmin((p: any) => ({ ...p, status: e.target.value }))}>
+                        <option value="ACTIVE">ACTIVE</option><option value="INACTIVE">INACTIVE</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-end gap-2 pt-2">
+                    <Button variant="outline" className="rounded-xl" onClick={() => setEditingAdmin(null)} disabled={isUpdatingAdmin}>Batal</Button>
+                    <Button className="bg-orange-500 hover:bg-orange-600 text-white rounded-xl" onClick={handleUpdateAdmin} disabled={isUpdatingAdmin}>
+                      {isUpdatingAdmin ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}Simpan Perubahan
+                    </Button>
+                  </div>
+                </div>
+              )}
             </DialogContent>
           </Dialog>
         </TabsContent>

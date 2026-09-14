@@ -9,8 +9,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Username dan password wajib diisi' }, { status: 400 });
     }
 
-    const admin = await getAdminByUsername(username);
+    const normalizedUsername = String(username).trim().replace(/^@/, '');
+    const admin = await getAdminByUsername(normalizedUsername);
     if (admin) {
+      if (admin.status !== 'ACTIVE') {
+        return NextResponse.json({ error: 'Akun Anda sedang nonaktif. Hubungi administrator.' }, { status: 403 });
+      }
       const validAdmin = await comparePassword(password, admin.password);
       if (!validAdmin) {
         return NextResponse.json({ error: 'Username atau password salah' }, { status: 401 });
@@ -37,7 +41,7 @@ export async function POST(req: Request) {
       });
     }
 
-    const user = await getUserByUsername(username);
+    const user = await getUserByUsername(normalizedUsername);
     if (!user) {
       return NextResponse.json({ error: 'Username atau password salah' }, { status: 401 });
     }

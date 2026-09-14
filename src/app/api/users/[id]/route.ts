@@ -31,6 +31,29 @@ function getUserFromToken(req: Request) {
   return verifyToken(token);
 }
 
+const userRelationChecks = [
+  { table: 'attendance', column: 'userId', label: 'riwayat absensi' },
+  { table: 'attendance_requests', column: 'userId', label: 'permintaan absensi' },
+  { table: 'gps_tracking', column: 'userId', label: 'riwayat lokasi GPS' },
+  { table: 'lembur', column: 'userId', label: 'riwayat lembur' },
+  { table: 'reports', column: 'userId', label: 'laporan petugas' },
+  { table: 'tasks', column: 'assignedToId', label: 'tugas yang diberikan' },
+] as const;
+
+async function getBlockingUserRelations(id: string) {
+  const results = await Promise.all(
+    userRelationChecks.map(async (relation) => {
+      const rows = await queryDb(
+        `SELECT COUNT(*) AS total FROM \`${relation.table}\` WHERE \`${relation.column}\` = ?`,
+        [id]
+      ) as Array<{ total: number | string }>;
+      return { label: relation.label, count: Number(rows[0]?.total || 0) };
+    })
+  );
+
+  return results.filter((relation) => relation.count > 0);
+}
+
 export async function GET(req: Request, context: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await context.params;
@@ -68,6 +91,60 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
     const decoded = getUserFromToken(req);
     if (!decoded) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const body = await req.json();
+
+    const url = new URL(req.url);
+    if (url.searchParams.get('type') === 'admin') {
+      if (decoded.role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      await ensureAdminUsersTable();
+
+      const updates: string[] = [];
+      const values: unknown[] = [];
+      const allowedRoles = ['ADMIN', 'STAFF', 'PIMPINAN'];
+      const allowedStatuses = ['ACTIVE', 'INACTIVE'];
+
+      if (body.username !== undefined) {
+        const username = String(body.username).trim().replace(/^@/, '');
+        if (!username || /\s/.test(username)) {
+          return NextResponse.json({ error: 'Username wajib diisi dan tidak boleh mengandung spasi.' }, { status: 400 });
+        }
+        updates.push('username = ?');
+        values.push(username);
+      }
+      if (body.fullName !== undefined) {
+        const fullName = String(body.fullName).trim();
+        if (!fullName) return NextResponse.json({ error: 'Nama lengkap wajib diisi.' }, { status: 400 });
+        updates.push('fullName = ?');
+        values.push(fullName);
+      }
+      if (body.email !== undefined) { updates.push('email = ?'); values.push(String(body.email).trim() || null); }
+      if (body.phone !== undefined) { updates.push('phone = ?'); values.push(String(body.phone).trim() || null); }
+      if (body.roleName !== undefined) {
+        const roleName = String(body.roleName);
+        if (!allowedRoles.includes(roleName)) return NextResponse.json({ error: 'Role administrator tidak valid.' }, { status: 400 });
+        updates.push('roleName = ?');
+        values.push(roleName);
+      }
+      if (body.status !== undefined) {
+        const status = String(body.status);
+        if (!allowedStatuses.includes(status)) return NextResponse.json({ error: 'Status akun tidak valid.' }, { status: 400 });
+        updates.push('status = ?');
+        values.push(status);
+      }
+
+      if (updates.length === 0) {
+        return NextResponse.json({ error: 'Tidak ada data administrator yang diubah.' }, { status: 400 });
+      }
+
+      values.push(id);
+      const result = await queryDb(
+        `UPDATE admin_users SET ${updates.join(', ')}, updatedAt = NOW(6) WHERE id = ?`,
+        values
+      ) as { affectedRows?: number };
+      if (!result.affectedRows) return NextResponse.json({ error: 'Akun administrator tidak ditemukan.' }, { status: 404 });
+
+      emitUserChange('update', { id: Number(id) });
+      return NextResponse.json({ message: 'Data administrator berhasil diperbarui.' });
+    }
 
     // Ensure photoUrl column can hold large base64 images
     try {
@@ -118,6 +195,9 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
     return NextResponse.json({ message: 'User berhasil diupdate' });
   } catch (err: any) {
     console.error('[PUT /api/users/:id] error:', err);
+    if (err?.code === 'ER_DUP_ENTRY') {
+      return NextResponse.json({ error: 'Username sudah digunakan oleh akun lain.' }, { status: 409 });
+    }
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
@@ -138,12 +218,17 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
     }
 
-    const hashed = await hashPassword('1234');
+    const newPassword = String(body?.newPassword || '');
+    if (newPassword.length < 8) {
+      return NextResponse.json({ error: 'Password baru minimal 8 karakter.' }, { status: 400 });
+    }
+    const hashed = await hashPassword(newPassword);
     if (type === 'admin') {
       await ensureAdminUsersTable();
-      await queryDb('UPDATE admin_users SET password = ?, updatedAt = NOW(6) WHERE id = ?', [hashed, id]);
+      const result = await queryDb('UPDATE admin_users SET password = ?, updatedAt = NOW(6) WHERE id = ?', [hashed, id]) as { affectedRows?: number };
+      if (!result.affectedRows) return NextResponse.json({ error: 'Akun administrator tidak ditemukan.' }, { status: 404 });
       emitUserChange('update', { id: Number(id) });
-      return NextResponse.json({ message: 'Password berhasil direset' });
+      return NextResponse.json({ message: 'Password berhasil diperbarui.' });
     }
     try {
       await queryDb('UPDATE users SET password = ?, updatedAt = NOW(6) WHERE id = ?', [hashed, id]);
@@ -170,12 +255,53 @@ export async function DELETE(req: Request, context: { params: Promise<{ id: stri
       await ensureAdminUsersTable();
       await queryDb('DELETE FROM admin_users WHERE id = ?', [id]);
     } else {
+      const users = await queryDb(
+        'SELECT id, fullName, username FROM users WHERE id = ? LIMIT 1',
+        [id]
+      ) as Array<{ id: number; fullName: string; username: string }>;
+      const targetUser = users[0];
+
+      if (!targetUser) {
+        return NextResponse.json(
+          { error: 'Petugas tidak ditemukan atau sudah dihapus.' },
+          { status: 404 }
+        );
+      }
+
+      const blockingRelations = await getBlockingUserRelations(id);
+      if (blockingRelations.length > 0) {
+        const relationSummary = blockingRelations
+          .map((relation) => `${relation.count} ${relation.label}`)
+          .join(', ');
+
+        return NextResponse.json(
+          {
+            code: 'USER_HAS_RELATED_DATA',
+            error: `Petugas ${targetUser.fullName || targetUser.username} tidak dapat dihapus karena masih memiliki ${relationSummary}. Ubah status petugas menjadi Nonaktif agar riwayat tetap tersimpan.`,
+            relations: blockingRelations,
+          },
+          { status: 409 }
+        );
+      }
+
       await queryDb('DELETE FROM users WHERE id = ?', [id]);
     }
     emitUserChange('delete', { id: Number(id) });
     return NextResponse.json({ message: 'User berhasil dihapus' });
   } catch (err: any) {
     console.error('[DELETE /api/users/:id] error:', err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    if (err?.code === 'ER_ROW_IS_REFERENCED_2' || err?.errno === 1451) {
+      return NextResponse.json(
+        {
+          code: 'USER_HAS_RELATED_DATA',
+          error: 'Petugas tidak dapat dihapus karena masih terhubung dengan data operasional. Ubah status petugas menjadi Nonaktif agar riwayat tetap tersimpan.',
+        },
+        { status: 409 }
+      );
+    }
+    return NextResponse.json(
+      { error: 'Terjadi kesalahan saat menghapus petugas. Silakan coba lagi atau hubungi administrator sistem.' },
+      { status: 500 }
+    );
   }
 }

@@ -387,17 +387,23 @@ export default function EditPetugasPage({ params }: { params: Promise<{ id: stri
 
   const handleResetPassword = async () => {
     if (!token || !id) return;
-    const ok = confirm('Reset password petugas menjadi 1234?');
+    const newPassword = window.prompt('Masukkan password baru petugas (minimal 8 karakter):');
+    if (newPassword === null) return;
+    if (newPassword.length < 8) {
+      toast({ title: 'Password Tidak Valid', description: 'Password baru minimal 8 karakter.', variant: 'destructive' });
+      return;
+    }
+    const ok = confirm('Simpan password baru petugas?');
     if (!ok) return;
 
     setIsResettingPassword(true);
     try {
       await axios.post(
         `${apiUrl}/users/${id}`,
-        { action: 'reset_password' },
+        { action: 'reset_password', newPassword },
         { headers: { Authorization: `Bearer ${token}` } },
       );
-      toast({ title: 'Berhasil', description: 'Password direset menjadi 1234' });
+      toast({ title: 'Berhasil', description: 'Password baru telah disimpan ke database.' });
     } catch (error: any) {
       toast({
         title: 'Gagal',

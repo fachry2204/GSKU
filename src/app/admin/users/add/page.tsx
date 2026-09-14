@@ -24,6 +24,7 @@ export default function AddPetugasPage() {
 
   const [formData, setFormData] = useState({
     fullName: '',
+    password: '',
     email: '',
     gender: 'Laki-laki',
     birthDate: null as Date | null,
@@ -286,14 +287,19 @@ export default function AddPetugasPage() {
       const formattedBirthDate = formData.birthDate ? format(formData.birthDate, 'yyyy-MM-dd') : null;
       const formattedJoinDate = formData.joinDate ? format(formData.joinDate, 'yyyy-MM-dd') : null;
 
-      // Generate username and set default password
+      // Generate username; password is supplied by the administrator.
       const generatedUsername = `pjlp-${formData.fullName.toLowerCase().replace(/\s/g, '')}-${Math.floor(Math.random() * 10000)}`;
-      const defaultPassword = '1234';
+
+      if (formData.password.length < 8) {
+        toast({ title: 'Password Tidak Valid', description: 'Password minimal 8 karakter.', variant: 'destructive' });
+        setIsSubmitting(false);
+        return;
+      }
 
       await axios.post(`${apiUrl}/users`, {
         ...formData,
         username: generatedUsername,
-        password: defaultPassword,
+        password: formData.password,
         birthDate: formattedBirthDate,
         joinDate: formattedJoinDate,
         phone: formattedPhone,
@@ -337,11 +343,15 @@ export default function AddPetugasPage() {
               <div className="space-y-3">
                 <Label className="text-base">User ID / Username</Label>
                 <Input disabled value="Dihasilkan Otomatis (PJLP...)" className="bg-zinc-100 rounded-xl h-14 text-base" />
-                <p className="text-sm text-zinc-500">Password default: 1234</p>
+                <p className="text-sm text-zinc-500">Username dibuat otomatis dan disimpan di database.</p>
               </div>
               <div className="space-y-3">
                 <Label className="text-base">Nama Petugas *</Label>
                 <Input required value={formData.fullName} onChange={e => setFormData({...formData, fullName: e.target.value})} placeholder="Nama Lengkap" className="rounded-xl h-14 text-base" />
+              </div>
+              <div className="space-y-3">
+                <Label className="text-base">Password *</Label>
+                <Input required type="password" minLength={8} value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} placeholder="Minimal 8 karakter" autoComplete="new-password" className="rounded-xl h-14 text-base" />
               </div>
               <div className="space-y-3">
                 <Label className="text-base">Email *</Label>
